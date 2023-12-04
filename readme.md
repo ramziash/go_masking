@@ -1,5 +1,9 @@
 The go app requires an imporovement & use GORM to adentify the schemas
 
+The package will need a .parquet file to be available in the same directory.
+
+Make sure that the .parquet file schema is properly setup in the read_parquet.go
+
 Run the below to create an image.
 
 ```
