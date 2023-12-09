@@ -2,10 +2,15 @@ package main
 
 import (
 	"fmt"
+	"reflect"
 
 	"github.com/xitongsys/parquet-go-source/local"
 	"github.com/xitongsys/parquet-go/reader"
 )
+
+// type ParquetRec struct {
+// 	Data map[string]interface{}
+// }
 
 type ParquetRec struct {
 	AgreementId             string `parquet:"name=agreementId, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
@@ -64,13 +69,17 @@ func ReadParquetInChunks(filePath string, chunkChan chan<- [][]string, chunkSize
 
 		for i, row := range rows {
 
-			chunk[i] = []string{
-				row.AgreementId,
-				row.AgreementSourceSystemId,
-				row.PartyIdScheme,
-				row.PartyIdValue,
-				row.SourceSystemId,
-				row.Snapshot_date,
+			val := reflect.ValueOf(row)
+
+			if val.Kind() == reflect.Struct {
+
+				var fields []string
+
+				for i := 0; i < val.NumField(); i++ {
+					field := val.Field(i)
+					fields = append(fields, fmt.Sprintf("%v", field.Interface()))
+				}
+				chunk[i] = fields
 			}
 
 		}
