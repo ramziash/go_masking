@@ -45,45 +45,60 @@ func (ms *MaskingService) maskValue(input string) string {
 	return string(result)
 }
 
-func (ms *MaskingService) maskChunk(data [][]string, colIndexes []int, start, end int, resultChan chan<- [][]string, wg *sync.WaitGroup) {
-	defer wg.Done()
+func MaskDataParallel(data []string, colIndexes []int) []string {
 
-	maskedChunk := make([][]string, end-start)
-	for i := start; i < end; i++ {
-		row := data[i]
-		maskedRow := make([]string, len(row))
-		copy(maskedRow, row)
-		for _, colIndex := range colIndexes {
-			maskedRow[colIndex] = masking.maskValue(row[colIndex])
-		}
-		maskedChunk[i-start] = maskedRow
+	maskedSlice := make([]string, len(data))
+
+	for ind := range colIndexes {
+		rowToMask := data[ind]
+		maskedOut := masking.maskValue(rowToMask)
+		// fmt.Println(maskedOut)
+		maskedSlice = append(maskedSlice, maskedOut)
 	}
-	resultChan <- maskedChunk
+
+	return maskedSlice
+
 }
 
-func MaskDataParallel(data [][]string, colIndexes []int) [][]string {
-	const chunkSize = 50 // Adjust the chunk size based on your needs
-	numChunks := (len(data) + chunkSize - 1) / chunkSize
+// func (ms *MaskingService) maskChunk(data []string, colIndexes []int, start, end int, resultChan chan<- [][]string, wg *sync.WaitGroup) {
+// 	defer wg.Done()
 
-	resultChan := make(chan [][]string, numChunks)
-	var wg sync.WaitGroup
+// 	maskedChunk := make([][]string, end-start)
+// 	for i := start; i < end; i++ {
+// 		row := data[i]
+// 		maskedRow := make([]string, len(row))
+// 		copy(maskedRow, row)
+// 		for _, colIndex := range colIndexes {
+// 			maskedRow[colIndex] = masking.maskValue(row[colIndex])
+// 		}
+// 		maskedChunk[i-start] = maskedRow
+// 	}
+// 	resultChan <- maskedChunk
+// }
 
-	for i := 0; i < numChunks; i++ {
-		start := i * chunkSize
-		end := start + chunkSize
-		if end > len(data) {
-			end = len(data)
-		}
-		wg.Add(1)
-		go masking.maskChunk(data, colIndexes, start, end, resultChan, &wg)
-	}
+// func MaskDataParallel(data []string, colIndexes []int) [][]string {
+// 	const chunkSize = 50 // Adjust the chunk size based on your needs
+// 	numChunks := (len(data) + chunkSize - 1) / chunkSize
 
-	wg.Wait()
-	close(resultChan)
+// 	resultChan := make(chan [][]string, numChunks)
+// 	var wg sync.WaitGroup
 
-	maskedData := make([][]string, 0)
-	for chunk := range resultChan {
-		maskedData = append(maskedData, chunk...)
-	}
-	return maskedData
-}
+// 	for i := 0; i < numChunks; i++ {
+// 		start := i * chunkSize
+// 		end := start + chunkSize
+// 		if end > len(data) {
+// 			end = len(data)
+// 		}
+// 		wg.Add(1)
+// 		go masking.maskChunk(data, colIndexes, start, end, resultChan, &wg)
+// 	}
+
+// 	wg.Wait()
+// 	close(resultChan)
+
+// 	maskedData := make([][]string, 0)
+// 	for chunk := range resultChan {
+// 		maskedData = append(maskedData, chunk...)
+// 	}
+// 	return maskedData
+// }

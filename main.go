@@ -1,12 +1,10 @@
 package main
 
 import (
-	"bytes"
 	"flag"
 	"fmt"
 	"log"
 	"os"
-	"sync"
 	"time"
 )
 
@@ -30,14 +28,6 @@ func initlogger(logFilePath string) error {
 	return nil
 }
 
-func createKeyValuePairs(m map[string]string) string {
-	b := new(bytes.Buffer)
-	for key, value := range m {
-		fmt.Fprintf(b, "%s=\"%s\"\n", key, value)
-	}
-	return b.String()
-}
-
 func main() {
 	// if there are errors (error at chunk 0:). make sure the file and the struct being read are the same.
 
@@ -52,42 +42,59 @@ func main() {
 	}
 
 	const chunkSize = 1000
-	chunkChan := make(chan [][]string, chunkSize)
-	processedChunkChan := make(chan [][]string, chunkSize)
+	chunkChan := make(chan []string, chunkSize)
+	processedChunkChan := make(chan []string, chunkSize)
+	const outputFile = "output.csv"
+
+	os.Remove(outputFile)
+	csvWriter, err := NewCSVWriter(outputFile)
+	if err != nil {
+		panic(err)
+	}
+	defer csvWriter.Close()
+
+	// writing the headers to a CSV file
+	if err := readWriteParquetSchema(*inputPath); err != nil {
+		panic(err)
+	}
 
 	go func() {
-		if err := ReadParquetInChunks(*inputPath, chunkChan, chunkSize); err != nil {
+		if err := ReadParquetInChunks(*inputPath, chunkChan, chunkSize, *csvWriter); err != nil {
 			panic(err)
 		}
 	}()
 
-	var wg sync.WaitGroup
-
 	// Start processing each chunk concurrently as they are read
+
 	go func() {
 		for chunk := range chunkChan {
-			wg.Add(1)
-			go func(data [][]string) {
-				defer wg.Done()
-				columnsToMask := []int{0} // Specify columns to mask by index
+			columnsToMask := []int{3}                           // Specify columns to mask by index
+			firstItemData := columnsToMask[0]                   // used for multi-column
+			lastItemData := columnsToMask[len(columnsToMask)-1] // used for multi-column
 
-				maskedChunk := MaskDataParallel(data, columnsToMask)
+			maskedChunk := MaskDataParallel(chunk, columnsToMask)
 
-				combinedChunk := make([][]string, len(data))
-				for i, row := range data {
-					combinedChunk[i] = append(row, maskedChunk[i]...)
-				}
-				processedChunkChan <- combinedChunk
-			}(chunk)
+			combinedChunk := make([]string, len(chunk))
+
+			combinedChunk = append(combinedChunk, chunk[0:firstItemData]...) // stop at the first column
+			combinedChunk = append(combinedChunk, maskedChunk...)
+			combinedChunk = append(combinedChunk, chunk[lastItemData:]...)
+
+			processedChunkChan <- combinedChunk
 		}
-
-		wg.Wait()
 		close(processedChunkChan)
 	}()
 
 	// Write processed data to CSV as chunks are processed
-	filePath := "output.csv"
-	if err := WriteToCSV(filePath, processedChunkChan); err != nil {
-		panic(err)
+	var rowCount int
+	for chunk := range processedChunkChan {
+		if err := csvWriter.Write(chunk); err != nil {
+			panic(err)
+		}
+		rowCount++
+		// fmt.Printf("Processed %d rows so far \n", rowCount)
+		// customLogger.Printf("Processed %d rows so far", rowCount)
 	}
+	customLogger.Printf("Processed %d rows final", rowCount)
+
 }
