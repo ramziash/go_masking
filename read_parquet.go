@@ -59,40 +59,46 @@ func readWriteParquetSchema(filePath string) error {
 	return nil
 }
 
-func ReadParquetInChunks(filePath string, chunkChan chan<- []string, chunkSize int, csvWriter CSVWriter) error {
-
+func ReadParquetInChunks(filePath string, chunkChan chan<- [][]string, chunkSize int) error {
 	fr, err := local.NewLocalFileReader(filePath)
 	if err != nil {
-		panic(err)
+		return err
 	}
 	defer fr.Close()
 
 	pr, err := reader.NewParquetReader(fr, nil, 4)
 	if err != nil {
-		panic(err)
+		return err
 	}
 	defer pr.ReadStop()
 
 	num := int(pr.GetNumRows())
+	batch := make([][]string, 0, chunkSize)
 
 	for i := 0; i < num; i += chunkSize {
-
+		readSize := chunkSize
 		if i+chunkSize > num {
-			i = num - chunkSize
+			readSize = num - i
 		}
 
-		data, err := pr.ReadByNumber(chunkSize)
+		data, err := pr.ReadByNumber(readSize)
 		if err != nil {
-			panic(err)
+			return err
 		}
 
-		for _, i := range data {
-			csvRow, err := SchemaLossless(i)
+		batch = batch[:0] // Reset batch slice but keep capacity
+		for _, row := range data {
+			csvRow, err := SchemaLossless(row)
 			if err != nil {
 				return err
 			}
-			chunkChan <- csvRow
+			batch = append(batch, csvRow)
 		}
+
+		// Send a copy of the batch to avoid race conditions
+		batchCopy := make([][]string, len(batch))
+		copy(batchCopy, batch)
+		chunkChan <- batchCopy
 	}
 	close(chunkChan)
 	return nil
@@ -142,56 +148,3 @@ func SchemaLossless(row interface{}) ([]string, error) {
 	}
 	return csvRow, nil
 }
-
-// func ReadParquetInChunks(filePath string, chunkChan chan<- [][]string, chunkSize int) error {
-// 	fr, err := local.NewLocalFileReader(filePath)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	defer fr.Close()
-
-// 	pr, err := reader.NewParquetReader(fr, nil, int64(chunkSize))
-// 	if err != nil {
-// 		return err
-// 	}
-// 	defer pr.ReadStop()
-
-// 	numRows := int(pr.GetNumRows())
-// 	// numCols := int(pr.SchemaHandler.GetColumnNum())
-
-// 	for start := 0; start < numRows; start += chunkSize {
-// 		end := start + chunkSize
-// 		if end > numRows {
-// 			end = numRows
-// 		}
-
-// 		rows := make([]ParquetRec, end-start)
-// 		if err := pr.Read(&rows); err != nil {
-// 			return fmt.Errorf("error at chunk %d: %v", start, err)
-// 		}
-
-// 		chunk := make([][]string, end-start)
-
-// 		for i, row := range rows {
-
-// 			val := reflect.ValueOf(row)
-
-// 			if val.Kind() == reflect.Struct {
-
-// 				var fields []string
-
-// 				for i := 0; i < val.NumField(); i++ {
-// 					field := val.Field(i)
-// 					fields = append(fields, fmt.Sprintf("%v", field.Interface()))
-// 				}
-// 				chunk[i] = fields
-// 			}
-
-// 		}
-
-// 		chunkChan <- chunk
-// 	}
-
-// 	close(chunkChan)
-// 	return nil
-// }
